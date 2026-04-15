@@ -70,7 +70,7 @@ async def _search_usda(client: httpx.AsyncClient, query: str) -> dict | None:
     params = {
         "api_key": settings.usda_api_key,
         "query": query,
-        "dataType": ["Survey (FNDDS)", "SR Legacy"],
+        # "dataType": ["Survey (FNDDS)", "SR Legacy"],
         "pageSize": 5,
     }
 
