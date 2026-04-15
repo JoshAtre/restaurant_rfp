@@ -22,7 +22,7 @@ Respond ONLY with valid JSON (no markdown, no commentary) in this exact format:
       "category": "salad|bowl|side|drink|dessert|appetizer|entree",
       "ingredients": [
         {
-          "name": "ingredient name (lowercase, singular, generic)",
+          "name": "ingredient name (see naming rules below)",
           "quantity": 2.5,
           "unit": "lbs|oz|cups|each|gallons|bunches",
           "notes": "optional prep notes like 'diced' or 'organic'"
@@ -32,10 +32,32 @@ Respond ONLY with valid JSON (no markdown, no commentary) in this exact format:
   ]
 }
 
-Guidelines:
+Ingredient naming rules — FOLLOW EXACTLY, the same commodity must
+produce byte-identical `name` values across every dish:
+
+1. Lowercase only. No capitals, no quotes, no punctuation except hyphens
+   in established compound names (e.g. "sun-dried tomato").
+2. SINGULAR form, always. "tomatoes" → "tomato", "cucumbers" → "cucumber",
+   "breadcrumbs" → "breadcrumb", "sweet potatoes" → "sweet potato",
+   "berries" → "berry", "carrots" → "carrot".
+3. Strip all prep/cosmetic modifiers from the name and move them to
+   `notes`. Remove: baby, fresh, organic, raw, cooked, warm, hot, cold,
+   chopped, diced, shredded, sliced, minced, grated, whole, crispy,
+   toasted, blackened, roasted-when-it's-just-prep, and seasoning
+   prefixes like "za'atar breadcrumb" → name "breadcrumb", notes
+   "za'atar-seasoned".
+4. KEEP modifiers that change the actual commodity / SKU: "sun-dried
+   tomato", "wild rice", "goat cheese", "smoked salmon", "pickled onion"
+   are their own ingredients — do not collapse them to the base.
+5. Canonicalize obvious synonyms: "EVOO" → "olive oil", "scallion" →
+   "green onion", "cilantro" stays "cilantro".
+6. Before returning, scan your own output: if two ingredients across
+   different dishes refer to the same commodity, their `name` fields
+   MUST be identical strings. Fix any drift before responding.
+
+Other guidelines:
 - Estimate quantities for a restaurant serving ~50 covers per day
 - Use commercial units (lbs, gallons, cases) not home-cooking units
-- Normalize ingredient names: "baby arugula" → "arugula", "EVOO" → "olive oil"
 - Include ALL components: dressings, garnishes, toppings, bases
 - Category should reflect the menu section
 """
