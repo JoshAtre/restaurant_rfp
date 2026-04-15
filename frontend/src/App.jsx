@@ -388,28 +388,81 @@ function RecipesPanel({ recipes }) {
   );
 }
 
-// Must match backend/app/services/email_sender.py COVERS_PER_DAY.
+// Must match backend/app/services/email_sender.py COVERS_PER_DAY and the
+// conversion tables in backend/app/core/units.py.
 const COVERS_PER_DAY = 150;
 const DAYS_PER_WEEK = 7;
 
+const WEIGHT_TO_OZ = {
+  oz: 1, ounce: 1, ounces: 1,
+  lb: 16, lbs: 16, pound: 16, pounds: 16,
+  g: 0.035274, gram: 0.035274, grams: 0.035274,
+  kg: 35.274, kilogram: 35.274, kilograms: 35.274,
+};
+
+const VOLUME_TO_FL_OZ = {
+  "fl oz": 1, floz: 1, "fluid ounce": 1, "fluid ounces": 1,
+  tsp: 1 / 6, teaspoon: 1 / 6, teaspoons: 1 / 6,
+  tbsp: 0.5, tablespoon: 0.5, tablespoons: 0.5,
+  cup: 8, cups: 8,
+  pint: 16, pints: 16,
+  quart: 32, quarts: 32,
+  gallon: 128, gallons: 128, gal: 128,
+  ml: 0.033814, milliliter: 0.033814, milliliters: 0.033814,
+  l: 33.814, liter: 33.814, liters: 33.814,
+};
+
+const COUNT_UNITS = new Set([
+  "each", "ea", "unit", "units", "piece", "pieces",
+  "bunch", "bunches", "head", "heads", "clove", "cloves",
+  "sprig", "sprigs", "slice", "slices",
+]);
+
+function toCanonical(qty, unit) {
+  if (qty == null) return null;
+  const q = Number(qty);
+  if (Number.isNaN(q)) return null;
+  const u = (unit || "").trim().toLowerCase().replace(/\.$/, "");
+  if (!u) return null;
+  if (u in WEIGHT_TO_OZ) return { category: "weight", qty: q * WEIGHT_TO_OZ[u], unit: "oz" };
+  if (u in VOLUME_TO_FL_OZ) return { category: "volume", qty: q * VOLUME_TO_FL_OZ[u], unit: "fl oz" };
+  if (COUNT_UNITS.has(u)) return { category: "count", qty: q, unit: "each" };
+  return null;
+}
+
+function prettify(canonical) {
+  const { category, qty, unit } = canonical;
+  if (category === "weight" && qty >= 16) return { qty: qty / 16, unit: "lbs" };
+  if (category === "volume" && qty >= 128) return { qty: qty / 128, unit: "gallons" };
+  return { qty, unit };
+}
+
 function computeTotals(recipes) {
-  // Recipe quantities are per single serving. Scale to weekly procurement
-  // volume so this matches the weekly figures sent in RFP emails.
-  const totals = {};
+  // Per-ingredient aggregation that mirrors backend/app/core/units.py:
+  // bucket rows by category, dominant category wins, others are dropped
+  // to prevent mixed-unit double-counting. Result is scaled to weekly
+  // procurement volume so it matches the RFP email figures.
+  const buckets = {};
   for (const r of recipes) {
     for (const i of r.ingredients || []) {
-      if (i.quantity == null) continue;
-      const unit = (i.unit || "").toLowerCase().trim();
-      let lbs = null;
-      if (unit === "lb" || unit === "lbs" || unit === "pound" || unit === "pounds") {
-        lbs = Number(i.quantity);
-      } else if (unit === "oz" || unit === "ounce" || unit === "ounces") {
-        lbs = Number(i.quantity) / 16;
-      }
-      if (lbs == null || Number.isNaN(lbs)) continue;
-      totals[i.id] =
-        (totals[i.id] || 0) + lbs * COVERS_PER_DAY * DAYS_PER_WEEK;
+      const c = toCanonical(i.quantity, i.unit);
+      if (!c) continue;
+      const b = (buckets[i.id] ||= { weight: [], volume: [], count: [] });
+      b[c.category].push(c.qty);
     }
+  }
+
+  const totals = {};
+  for (const [id, b] of Object.entries(buckets)) {
+    const chosen = ["weight", "volume", "count"].reduce((a, k) =>
+      b[k].length > b[a].length ? k : a
+    );
+    if (!b[chosen].length) continue;
+    const sum = b[chosen].reduce((a, x) => a + x, 0);
+    const unit =
+      chosen === "weight" ? "oz" : chosen === "volume" ? "fl oz" : "each";
+    const weekly = { category: chosen, qty: sum * COVERS_PER_DAY * DAYS_PER_WEEK, unit };
+    totals[id] = prettify(weekly);
   }
   return totals;
 }
@@ -458,28 +511,34 @@ function PricingPanel({ ingredients, chartData, recipes }) {
       <div className="price-list">
         {(() => {
           const totals = computeTotals(recipes || []);
-          return ingredients
-            .filter((i) => i.latest_price != null)
-            .map((i) => {
-              const total = totals[i.id];
-              return (
-                <div key={i.id} className="price-row">
-                  <div className="ing-col">
-                    <div className="ing">{i.name}</div>
-                    {i.category && <div className="cat">{i.category}</div>}
-                  </div>
-                  <div className="num-col">
-                    <div className="num">${Number(i.latest_price).toFixed(2)}</div>
-                    <div className="unit">{i.price_unit || "per lb"}</div>
-                    {total != null && (
-                      <div className="total">
-                        {total.toFixed(1)} lbs/week
-                      </div>
-                    )}
-                  </div>
+          // Show every ingredient — even ones USDA didn't price — so
+          // dressings and unmatched items still surface with their
+          // weekly procurement totals.
+          return ingredients.map((i) => {
+            const total = totals[i.id];
+            const hasPrice = i.latest_price != null;
+            return (
+              <div key={i.id} className="price-row">
+                <div className="ing-col">
+                  <div className="ing">{i.name}</div>
+                  {i.category && <div className="cat">{i.category}</div>}
                 </div>
-              );
-            });
+                <div className="num-col">
+                  <div className={`num${hasPrice ? "" : " missing"}`}>
+                    {hasPrice ? `$${Number(i.latest_price).toFixed(2)}` : "—"}
+                  </div>
+                  <div className="unit">
+                    {hasPrice ? i.price_unit || "per lb" : "no USDA match"}
+                  </div>
+                  {total && (
+                    <div className="total">
+                      {total.qty.toFixed(1)} {total.unit}/week
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          });
         })()}
       </div>
     </div>

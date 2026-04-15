@@ -628,6 +628,11 @@
   font-weight: 500;
 }
 
+.price-row .num.missing {
+  color: var(--ink-fade);
+  font-weight: 400;
+}
+
 .price-row .unit {
   display: block;
   font-size: 9px;

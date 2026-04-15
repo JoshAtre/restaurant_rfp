@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.llm import call_llm
+from app.core.units import sum_canonical, prettify
 from app.models.tables import (
     Distributor, DistributorIngredient, Ingredient,
     RecipeIngredient, RFPEmail,
@@ -66,15 +67,36 @@ async def compose_and_send_rfp_emails(db: Session, send: bool = False) -> list[d
                 .filter(RecipeIngredient.ingredient_id == ing.id)
                 .all()
             )
-            # recipe_ingredients.quantity is PER SINGLE SERVING.
-            # Weekly = Σ(per-serving) × covers/day × 7 days.
-            per_serving_sum = sum(ri.quantity or 0 for ri in total_qty)
-            unit = total_qty[0].unit if total_qty else "units"
+            # recipe_ingredients.quantity is PER SINGLE SERVING, and the
+            # unit can drift across recipes ("2 oz" vs "1 tbsp" vs "0.5 cup").
+            # Canonicalize each row into a single base unit per category
+            # (oz / fl oz / each) before summing — rows in non-dominant
+            # categories are dropped to avoid silent double-counting.
+            agg = sum_canonical([(ri.quantity, ri.unit) for ri in total_qty])
+            if agg.dropped_categories or agg.dropped_unknown:
+                logger.warning(
+                    "Mixed-unit ingredient: ingredient_id=%s name=%r dropped_categories=%s dropped_unknown=%s",
+                    ing.id,
+                    ing.name,
+                    agg.dropped_categories,
+                    agg.dropped_unknown,
+                )
+            if agg.canonical is None:
+                logger.info(
+                    "Skipping ingredient with no canonicalizable qty: ingredient_id=%s name=%r",
+                    ing.id,
+                    ing.name,
+                )
+                continue
+
+            # Scale per-serving → weekly procurement volume.
+            agg.canonical.quantity *= COVERS_PER_DAY * 7
+            weekly_qty, weekly_unit = prettify(agg.canonical)
 
             ingredient_details.append({
                 "name": ing.name,
-                "weekly_quantity": round(per_serving_sum * COVERS_PER_DAY * 7, 1),
-                "unit": unit,
+                "weekly_quantity": weekly_qty,
+                "unit": weekly_unit,
             })
 
         # Compose the email using LLM
