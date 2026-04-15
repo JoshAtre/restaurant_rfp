@@ -337,7 +337,11 @@ export default function App() {
             <div className="tab-panel" key={activeTab}>
               {activeTab === "recipes" && <RecipesPanel recipes={recipes} />}
               {activeTab === "pricing" && (
-                <PricingPanel ingredients={ingredients} chartData={chartData} />
+                <PricingPanel
+                  ingredients={ingredients}
+                  chartData={chartData}
+                  recipes={recipes}
+                />
               )}
               {activeTab === "distributors" && (
                 <DistributorsPanel distributors={distributors} />
@@ -384,7 +388,30 @@ function RecipesPanel({ recipes }) {
   );
 }
 
-function PricingPanel({ ingredients, chartData }) {
+const COVERS_PER_DAY = 50;
+
+function computeTotals(recipes) {
+  // Recipe quantities are per single serving. Multiply by estimated daily
+  // covers to produce a procurement-scale total in pounds.
+  const totals = {};
+  for (const r of recipes) {
+    for (const i of r.ingredients || []) {
+      if (i.quantity == null) continue;
+      const unit = (i.unit || "").toLowerCase().trim();
+      let lbs = null;
+      if (unit === "lb" || unit === "lbs" || unit === "pound" || unit === "pounds") {
+        lbs = Number(i.quantity);
+      } else if (unit === "oz" || unit === "ounce" || unit === "ounces") {
+        lbs = Number(i.quantity) / 16;
+      }
+      if (lbs == null || Number.isNaN(lbs)) continue;
+      totals[i.id] = (totals[i.id] || 0) + lbs * COVERS_PER_DAY;
+    }
+  }
+  return totals;
+}
+
+function PricingPanel({ ingredients, chartData, recipes }) {
   if (!ingredients.length)
     return <Empty text="Pricing snapshots will appear once Step 2 completes." />;
 
@@ -426,20 +453,31 @@ function PricingPanel({ ingredients, chartData }) {
       </div>
 
       <div className="price-list">
-        {ingredients
-          .filter((i) => i.latest_price != null)
-          .map((i) => (
-            <div key={i.id} className="price-row">
-              <div>
-                <div className="ing">{i.name}</div>
-                {i.category && <div className="unit">{i.category}</div>}
-              </div>
-              <div>
-                <div className="num">${Number(i.latest_price).toFixed(2)}</div>
-                <span className="unit">{i.price_unit || "per unit"}</span>
-              </div>
-            </div>
-          ))}
+        {(() => {
+          const totals = computeTotals(recipes || []);
+          return ingredients
+            .filter((i) => i.latest_price != null)
+            .map((i) => {
+              const total = totals[i.id];
+              return (
+                <div key={i.id} className="price-row">
+                  <div className="ing-col">
+                    <div className="ing">{i.name}</div>
+                    {i.category && <div className="cat">{i.category}</div>}
+                  </div>
+                  <div className="num-col">
+                    <div className="num">${Number(i.latest_price).toFixed(2)}</div>
+                    <div className="unit">{i.price_unit || "per lb"}</div>
+                    {total != null && (
+                      <div className="total">
+                        {total.toFixed(1)} lbs/day
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            });
+        })()}
       </div>
     </div>
   );

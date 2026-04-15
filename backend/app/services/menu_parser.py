@@ -56,8 +56,15 @@ produce byte-identical `name` values across every dish:
    MUST be identical strings. Fix any drift before responding.
 
 Other guidelines:
-- Estimate quantities for a restaurant serving ~50 covers per day
-- Use commercial units (lbs, gallons, cases) not home-cooking units
+- Estimate quantities PER SINGLE SERVING (one plate), not daily totals.
+  A harvest bowl might have 5 oz of chicken and 2 oz of kale, not 12 lbs.
+- Use WEIGHT units (oz) for anything solid — proteins, produce, grains,
+  dairy, nuts. Do NOT use "each" for items like avocado, lime, lemon,
+  tomato, apple, onion — estimate the edible weight in oz instead
+  (e.g. half an avocado ≈ 3 oz, a lime wedge ≈ 0.25 oz, half a tomato
+  ≈ 2 oz). "each" is only acceptable for truly uncountable-by-weight
+  garnishes like a single herb sprig.
+- Use fl oz or tbsp for liquids (dressings, oils, sauces).
 - Include ALL components: dressings, garnishes, toppings, bases
 - Category should reflect the menu section
 """

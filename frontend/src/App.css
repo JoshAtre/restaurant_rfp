@@ -590,21 +590,39 @@
 .price-row {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 12px;
-  padding: 12px 2px;
+  gap: 16px;
+  padding: 14px 2px;
   border-bottom: 1px dashed var(--paper-darker);
-  align-items: baseline;
+  align-items: start;
+}
+
+.price-row .ing-col {
+  min-width: 0;
 }
 
 .price-row .ing {
   font-family: var(--serif);
-  font-size: 16px;
+  font-size: 17px;
   letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+
+.price-row .cat {
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--rust);
+}
+
+.price-row .num-col {
+  text-align: right;
 }
 
 .price-row .num {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
   color: var(--forest-bright);
   font-weight: 500;
@@ -616,8 +634,18 @@
   color: var(--ink-fade);
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  text-align: right;
   margin-top: 2px;
+}
+
+.price-row .total {
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+  letter-spacing: 0.06em;
+  padding-top: 4px;
+  border-top: 1px dotted var(--paper-darker);
 }
 
 /* ─── Distributors ────────────────────────────────────── */
