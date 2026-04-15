@@ -44,6 +44,17 @@ async function jfetch(url, opts) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+async function waitFor(check, isDone) {
+  while (true) {
+    if (await check()) return;
+    if (isDone()) {
+      await check();
+      return;
+    }
+    await sleep(700);
+  }
+}
+
 export default function App() {
   const [form, setForm] = useState({
     name: "Sweetgreen",
@@ -100,6 +111,18 @@ export default function App() {
     setEmails([]);
 
     try {
+      // Snapshot current counts — ingredients, distributors, and emails
+      // are global tables, so we only consider a step "done" once its
+      // count has grown past this baseline.
+      const [baseIngs, baseDists, baseEmails] = await Promise.all([
+        jfetch(`${API}/ingredients`).catch(() => []),
+        jfetch(`${API}/distributors`).catch(() => []),
+        jfetch(`${API}/emails`).catch(() => []),
+      ]);
+      const basePricedCount = baseIngs.filter((i) => i.latest_price != null).length;
+      const baseDistCount = baseDists.length;
+      const baseEmailCount = baseEmails.length;
+
       const menu = await jfetch(`${API}/menus`, {
         method: "POST",
         body: JSON.stringify(form),
@@ -137,7 +160,8 @@ export default function App() {
 
       await waitFor(async () => {
         const ings = await jfetch(`${API}/ingredients`).catch(() => []);
-        if (ings.some((i) => i.latest_price != null)) {
+        const priced = ings.filter((i) => i.latest_price != null).length;
+        if (priced > basePricedCount) {
           setIngredients(ings);
           return true;
         }
@@ -148,7 +172,7 @@ export default function App() {
 
       await waitFor(async () => {
         const d = await jfetch(`${API}/distributors`).catch(() => []);
-        if (d.length) {
+        if (d.length > baseDistCount) {
           setDistributors(d);
           return true;
         }
@@ -159,7 +183,7 @@ export default function App() {
 
       await waitFor(async () => {
         const em = await jfetch(`${API}/emails`).catch(() => []);
-        if (em.length) {
+        if (em.length > baseEmailCount) {
           setEmails(em);
           return true;
         }
