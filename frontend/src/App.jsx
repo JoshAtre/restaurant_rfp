@@ -388,11 +388,13 @@ function RecipesPanel({ recipes }) {
   );
 }
 
-const COVERS_PER_DAY = 50;
+// Must match backend/app/services/email_sender.py COVERS_PER_DAY.
+const COVERS_PER_DAY = 150;
+const DAYS_PER_WEEK = 7;
 
 function computeTotals(recipes) {
-  // Recipe quantities are per single serving. Multiply by estimated daily
-  // covers to produce a procurement-scale total in pounds.
+  // Recipe quantities are per single serving. Scale to weekly procurement
+  // volume so this matches the weekly figures sent in RFP emails.
   const totals = {};
   for (const r of recipes) {
     for (const i of r.ingredients || []) {
@@ -405,7 +407,8 @@ function computeTotals(recipes) {
         lbs = Number(i.quantity) / 16;
       }
       if (lbs == null || Number.isNaN(lbs)) continue;
-      totals[i.id] = (totals[i.id] || 0) + lbs * COVERS_PER_DAY;
+      totals[i.id] =
+        (totals[i.id] || 0) + lbs * COVERS_PER_DAY * DAYS_PER_WEEK;
     }
   }
   return totals;
@@ -470,7 +473,7 @@ function PricingPanel({ ingredients, chartData, recipes }) {
                     <div className="unit">{i.price_unit || "per lb"}</div>
                     {total != null && (
                       <div className="total">
-                        {total.toFixed(1)} lbs/day
+                        {total.toFixed(1)} lbs/week
                       </div>
                     )}
                   </div>

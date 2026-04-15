@@ -20,6 +20,7 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 QUOTE_DEADLINE_DAYS = 7
+COVERS_PER_DAY = 150  # must match frontend/src/App.jsx COVERS_PER_DAY
 
 
 async def compose_and_send_rfp_emails(db: Session, send: bool = False) -> list[dict]:
@@ -65,12 +66,14 @@ async def compose_and_send_rfp_emails(db: Session, send: bool = False) -> list[d
                 .filter(RecipeIngredient.ingredient_id == ing.id)
                 .all()
             )
-            agg_qty = sum(ri.quantity or 0 for ri in total_qty)
+            # recipe_ingredients.quantity is PER SINGLE SERVING.
+            # Weekly = Σ(per-serving) × covers/day × 7 days.
+            per_serving_sum = sum(ri.quantity or 0 for ri in total_qty)
             unit = total_qty[0].unit if total_qty else "units"
 
             ingredient_details.append({
                 "name": ing.name,
-                "weekly_quantity": round(agg_qty * 7, 1),  # Scale to weekly
+                "weekly_quantity": round(per_serving_sum * COVERS_PER_DAY * 7, 1),
                 "unit": unit,
             })
 
