@@ -1,0 +1,485 @@
+import { useMemo, useState } from "react";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+} from "recharts";
+import "./App.css";
+
+const API = "http://localhost:8000/api";
+
+const STEPS = [
+  { id: 1, title: "Menu Parsing", desc: "LLM · Recipes & Ingredients" },
+  { id: 2, title: "USDA Pricing", desc: "FoodData Central · Snapshots" },
+  { id: 3, title: "Find Distributors", desc: "Google Places · Local supply" },
+  { id: 4, title: "Send Emails", desc: "RFP Drafts · Outbound" },
+];
+
+const TABS = [
+  { id: "recipes", label: "Recipes" },
+  { id: "pricing", label: "Pricing" },
+  { id: "distributors", label: "Distributors" },
+  { id: "emails", label: "RFP Emails" },
+];
+
+const TODAY = new Date().toLocaleDateString("en-US", {
+  weekday: "long",
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+});
+
+async function jfetch(url, opts) {
+  const r = await fetch(url, {
+    headers: { "Content-Type": "application/json" },
+    ...opts,
+  });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+export default function App() {
+  const [form, setForm] = useState({
+    name: "Sweetgreen",
+    source_url: "https://www.sweetgreen.com/menu",
+    raw_text: "",
+  });
+  const [stepStatus, setStepStatus] = useState({
+    1: "idle",
+    2: "idle",
+    3: "idle",
+    4: "idle",
+  });
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState("recipes");
+
+  const [recipes, setRecipes] = useState([]);
+  const [ingredients, setIngredients] = useState([]);
+  const [distributors, setDistributors] = useState([]);
+  const [emails, setEmails] = useState([]);
+
+  const chartData = useMemo(
+    () =>
+      ingredients
+        .filter((i) => i.latest_price != null)
+        .slice(0, 12)
+        .map((i) => ({
+          name: i.name.length > 14 ? i.name.slice(0, 13) + "…" : i.name,
+          price: Number(i.latest_price),
+        })),
+    [ingredients]
+  );
+
+  const counts = {
+    recipes: recipes.length,
+    pricing: ingredients.filter((i) => i.latest_price != null).length,
+    distributors: distributors.length,
+    emails: emails.length,
+  };
+
+  const updateField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const setStep = (id, status) =>
+    setStepStatus((s) => ({ ...s, [id]: status }));
+
+  async function handleRun(e) {
+    e.preventDefault();
+    if (running) return;
+    setError(null);
+    setRunning(true);
+    setStepStatus({ 1: "running", 2: "idle", 3: "idle", 4: "idle" });
+    setRecipes([]);
+    setIngredients([]);
+    setDistributors([]);
+    setEmails([]);
+
+    try {
+      const menu = await jfetch(`${API}/menus`, {
+        method: "POST",
+        body: JSON.stringify(form),
+      });
+
+      // The backend's /pipeline/run blocks until the entire pipeline
+      // finishes, so we fire it without awaiting and poll each step's
+      // data endpoint to advance the stepper in real time.
+      let pipelineDone = false;
+      let pipelineError = null;
+      const pipelinePromise = jfetch(`${API}/pipeline/run`, {
+        method: "POST",
+        body: JSON.stringify({ menu_id: menu.id, send_emails: false }),
+      });
+      pipelinePromise
+        .catch((err) => {
+          pipelineError = err;
+        })
+        .finally(() => {
+          pipelineDone = true;
+        });
+
+      const isDone = () => pipelineDone;
+
+      await waitFor(async () => {
+        const r = await jfetch(`${API}/menus/${menu.id}/recipes`).catch(() => []);
+        if (r.length) {
+          setRecipes(r);
+          return true;
+        }
+        return false;
+      }, isDone);
+      setStep(1, "done");
+      setStep(2, "running");
+
+      await waitFor(async () => {
+        const ings = await jfetch(`${API}/ingredients`).catch(() => []);
+        if (ings.some((i) => i.latest_price != null)) {
+          setIngredients(ings);
+          return true;
+        }
+        return false;
+      }, isDone);
+      setStep(2, "done");
+      setStep(3, "running");
+
+      await waitFor(async () => {
+        const d = await jfetch(`${API}/distributors`).catch(() => []);
+        if (d.length) {
+          setDistributors(d);
+          return true;
+        }
+        return false;
+      }, isDone);
+      setStep(3, "done");
+      setStep(4, "running");
+
+      await waitFor(async () => {
+        const em = await jfetch(`${API}/emails`).catch(() => []);
+        if (em.length) {
+          setEmails(em);
+          return true;
+        }
+        return false;
+      }, isDone);
+      setStep(4, "done");
+
+      await pipelinePromise;
+      if (pipelineError) throw pipelineError;
+
+      // Final refresh to catch anything added near the end.
+      const [r2, i2, d2, e2] = await Promise.all([
+        jfetch(`${API}/menus/${menu.id}/recipes`).catch(() => null),
+        jfetch(`${API}/ingredients`).catch(() => null),
+        jfetch(`${API}/distributors`).catch(() => null),
+        jfetch(`${API}/emails`).catch(() => null),
+      ]);
+      if (r2) setRecipes(r2);
+      if (i2) setIngredients(i2);
+      if (d2) setDistributors(d2);
+      if (e2) setEmails(e2);
+    } catch (err) {
+      setError(err.message || "Pipeline failed.");
+      setStepStatus((s) => {
+        const next = { ...s };
+        for (const k of Object.keys(next)) {
+          if (next[k] === "running") next[k] = "idle";
+        }
+        return next;
+      });
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="page">
+      <header className="masthead">
+        <div className="dateline">
+          Vol. I · No. 001
+          <br />
+          {TODAY}
+        </div>
+        <h1 className="title">
+          The Pathway <em>Ledger</em>
+        </h1>
+        <div className="edition">
+          Procurement Desk
+          <br />
+          Restaurant RFP Automation
+        </div>
+      </header>
+
+      <div className="kicker">
+        <span>
+          <span className="dot" />
+          Automated Supply Chain · Farm to Table
+        </span>
+        <span>Powered by USDA · OpenAI · Google Places</span>
+      </div>
+
+      <div className="body-grid">
+        <aside className="stepper">
+          <div className="label">The Pipeline</div>
+          {STEPS.map((s) => {
+            const st = stepStatus[s.id];
+            return (
+              <div key={s.id} className={`step ${st}`}>
+                <div className="numeral">{String(s.id).padStart(2, "0")}</div>
+                <div className="meta">
+                  <h4 className="title">{s.title}</h4>
+                  <div className="desc">{s.desc}</div>
+                  <div className="status">
+                    {st === "idle" && "Awaiting"}
+                    {st === "running" && "In Progress"}
+                    {st === "done" && "Completed"}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </aside>
+
+        <main className="main">
+          <section className="card pad">
+            <div className="section-label">I. Submission</div>
+            <h2 className="section-head">
+              Commission a <em>new procurement</em> run
+            </h2>
+            <form onSubmit={handleRun}>
+              <div className="form-grid">
+                <div className="field">
+                  <label>Restaurant Name</label>
+                  <input
+                    value={form.name}
+                    onChange={(e) => updateField("name", e.target.value)}
+                    placeholder="e.g. Sweetgreen"
+                    required
+                  />
+                </div>
+                <div className="field">
+                  <label>Menu Source URL</label>
+                  <input
+                    value={form.source_url}
+                    onChange={(e) => updateField("source_url", e.target.value)}
+                    placeholder="https://…"
+                  />
+                </div>
+                <div className="field full">
+                  <label>Raw Menu Text</label>
+                  <textarea
+                    value={form.raw_text}
+                    onChange={(e) => updateField("raw_text", e.target.value)}
+                    placeholder="Paste the menu here — dish names, descriptions, ingredients. The parser will handle the rest."
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="form-footer">
+                <div className="hint">
+                  Four steps · Ingredients parsed, priced, sourced, and dispatched as RFP drafts.
+                </div>
+                <button className="btn" disabled={running}>
+                  {running ? "Processing…" : "Run the Pipeline"}
+                  <span className="arrow">→</span>
+                </button>
+              </div>
+
+              {error && <div className="error-banner">⚠ {error}</div>}
+            </form>
+          </section>
+
+          <section className="ledger">
+            <div className="section-label">II. The Ledger</div>
+            <div className="tabs">
+              {TABS.map((t, i) => (
+                <button
+                  key={t.id}
+                  className={`tab ${activeTab === t.id ? "active" : ""}`}
+                  onClick={() => setActiveTab(t.id)}
+                  type="button"
+                >
+                  <span className="idx">{String(i + 1).padStart(2, "0")}.</span>
+                  {t.label}
+                  <span className="count">{counts[t.id]}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="tab-panel" key={activeTab}>
+              {activeTab === "recipes" && <RecipesPanel recipes={recipes} />}
+              {activeTab === "pricing" && (
+                <PricingPanel ingredients={ingredients} chartData={chartData} />
+              )}
+              {activeTab === "distributors" && (
+                <DistributorsPanel distributors={distributors} />
+              )}
+              {activeTab === "emails" && <EmailsPanel emails={emails} />}
+            </div>
+          </section>
+
+          <footer className="colophon">
+            <span>
+              Set in <em>Fraunces</em> &amp; JetBrains Mono
+            </span>
+            <span>API ↔ localhost:8000</span>
+          </footer>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function RecipesPanel({ recipes }) {
+  if (!recipes.length)
+    return <Empty text="No recipes yet. Commission a pipeline run above." />;
+  return (
+    <div className="recipe-grid">
+      {recipes.map((r) => (
+        <article key={r.id} className="recipe">
+          {r.category && <div className="cat">{r.category}</div>}
+          <h3>{r.name}</h3>
+          {r.description && <p className="desc">{r.description}</p>}
+          <ul>
+            {(r.ingredients || []).map((i) => (
+              <li key={i.id}>
+                <span>{i.name}</span>
+                <span className="qty">
+                  {i.quantity ?? "—"} {i.unit || ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function PricingPanel({ ingredients, chartData }) {
+  if (!ingredients.length)
+    return <Empty text="Pricing snapshots will appear once Step 2 completes." />;
+
+  return (
+    <div className="pricing-wrap">
+      <div className="chart-box">
+        <span className="chart-label">USDA Commodity Prices · Top 12</span>
+        <ResponsiveContainer width="100%" height={380}>
+          <BarChart data={chartData} margin={{ top: 24, right: 16, bottom: 48, left: 8 }}>
+            <CartesianGrid stroke="#d6cbb0" strokeDasharray="2 4" vertical={false} />
+            <XAxis
+              dataKey="name"
+              tick={{ fontFamily: "JetBrains Mono", fontSize: 10, fill: "#7a7561" }}
+              angle={-35}
+              textAnchor="end"
+              interval={0}
+              axisLine={{ stroke: "#2a2618" }}
+              tickLine={false}
+            />
+            <YAxis
+              tick={{ fontFamily: "JetBrains Mono", fontSize: 10, fill: "#7a7561" }}
+              axisLine={{ stroke: "#2a2618" }}
+              tickLine={false}
+            />
+            <Tooltip
+              contentStyle={{
+                background: "#161c12",
+                border: "none",
+                fontFamily: "JetBrains Mono",
+                fontSize: 11,
+                color: "#f1ebdc",
+                letterSpacing: "0.05em",
+              }}
+              cursor={{ fill: "rgba(181,67,42,0.08)" }}
+            />
+            <Bar dataKey="price" fill="#2f5a2b" radius={[2, 2, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="price-list">
+        {ingredients
+          .filter((i) => i.latest_price != null)
+          .map((i) => (
+            <div key={i.id} className="price-row">
+              <div>
+                <div className="ing">{i.name}</div>
+                {i.category && <div className="unit">{i.category}</div>}
+              </div>
+              <div>
+                <div className="num">${Number(i.latest_price).toFixed(2)}</div>
+                <span className="unit">{i.price_unit || "per unit"}</span>
+              </div>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+function DistributorsPanel({ distributors }) {
+  if (!distributors.length)
+    return <Empty text="Local distributors will be sourced in Step 3." />;
+  return (
+    <div className="dist-grid">
+      {distributors.map((d) => (
+        <article key={d.id} className="dist">
+          {d.rating != null && (
+            <div className="rating">★ {Number(d.rating).toFixed(1)}</div>
+          )}
+          <h3>{d.name}</h3>
+          <div className="loc">
+            {[d.city, d.state].filter(Boolean).join(", ") || "—"}
+          </div>
+          <div className="contact">
+            {d.email && (
+              <div>
+                <a href={`mailto:${d.email}`}>{d.email}</a>
+              </div>
+            )}
+            {d.phone && <div>{d.phone}</div>}
+            {d.address && <div>{d.address}</div>}
+          </div>
+          {d.ingredient_count > 0 && (
+            <div className="supplies">
+              Supplies {d.ingredient_count} ingredient
+              {d.ingredient_count === 1 ? "" : "s"}
+            </div>
+          )}
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function EmailsPanel({ emails }) {
+  if (!emails.length)
+    return <Empty text="RFP drafts will appear once Step 4 completes." />;
+  return (
+    <div>
+      {emails.map((e) => (
+        <article key={e.id} className="email">
+          <div className="email-head">
+            <div className="to">
+              To: <strong>{e.distributor_name}</strong>
+              {e.distributor_email && <> · {e.distributor_email}</>}
+            </div>
+            <div className={`status ${e.status === "sent" ? "sent" : ""}`}>
+              {e.status || "draft"}
+            </div>
+          </div>
+          <h3>{e.subject}</h3>
+          <pre>{e.body}</pre>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function Empty({ text }) {
+  return <div className="empty">{text}</div>;
+}
