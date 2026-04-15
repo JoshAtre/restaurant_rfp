@@ -3,6 +3,7 @@ Step 3: Find Local Distributors
 Finds food distributors in the restaurant's area that supply required ingredients.
 """
 
+import logging
 import httpx
 from sqlalchemy.orm import Session
 from app.core.config import get_settings
@@ -10,6 +11,7 @@ from app.core.llm import call_llm
 from app.models.tables import Ingredient, Distributor, DistributorIngredient
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 # Distributor search categories based on ingredient types
 DISTRIBUTOR_CATEGORIES = {
@@ -27,16 +29,26 @@ async def find_distributors(db: Session) -> list[dict]:
     # Get unique ingredient categories
     ingredients = db.query(Ingredient).all()
     categories = set(ing.category or "other" for ing in ingredients)
+    logger.info(
+        "Starting distributor search: ingredient_count=%s categories=%s location=%s, %s",
+        len(ingredients),
+        sorted(categories),
+        settings.restaurant_city,
+        settings.restaurant_state,
+    )
 
     results = []
 
     if settings.google_places_api_key:
         # Use Google Places API for real distributor search
+        logger.info("Using Google Places API for distributor search")
         results = await _search_google_places(db, categories, ingredients)
     else:
         # Use LLM to generate plausible local distributors
+        logger.info("No Google Places API key configured; using LLM-generated distributors")
         results = await _generate_distributors_llm(db, categories, ingredients)
 
+    logger.info("Completed distributor search: distributors_created=%s", len(results))
     return results
 
 
@@ -50,6 +62,12 @@ async def _search_google_places(
         for category in categories:
             search_query = DISTRIBUTOR_CATEGORIES.get(category, "food distributor")
             location = f"{settings.restaurant_city}, {settings.restaurant_state}"
+            logger.info(
+                "Searching Google Places for category=%s query=%r location=%r",
+                category,
+                search_query,
+                location,
+            )
 
             url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
             params = {
@@ -58,9 +76,21 @@ async def _search_google_places(
             }
 
             response = await client.get(url, params=params)
+            if response.is_error:
+                logger.warning(
+                    "Google Places search returned status=%s for category=%s",
+                    response.status_code,
+                    category,
+                )
             data = response.json()
+            places = data.get("results", [])
+            logger.info(
+                "Google Places returned %s candidates for category=%s",
+                len(places),
+                category,
+            )
 
-            for place in data.get("results", [])[:3]:  # Top 3 per category
+            for place in places[:3]:  # Top 3 per category
                 # Check if distributor already exists
                 existing = db.query(Distributor).filter(
                     Distributor.place_id == place.get("place_id")
@@ -92,8 +122,21 @@ async def _search_google_places(
                         "category": category,
                         "source": "google_places",
                     })
+                    logger.info(
+                        "Created distributor from Google Places: distributor_id=%s name=%r category=%s",
+                        distributor.id,
+                        distributor.name,
+                        category,
+                    )
+                else:
+                    logger.info(
+                        "Skipping existing Google Places distributor: place_id=%s name=%r",
+                        place.get("place_id"),
+                        place.get("name"),
+                    )
 
     db.commit()
+    logger.info("Committed %s Google Places distributors", len(results))
     return results
 
 
@@ -139,6 +182,7 @@ Include a mix of:
     result = await call_llm(system_prompt, user_prompt)
     distributors_data = result.get("distributors", [])
     results = []
+    logger.info("LLM returned %s distributor candidates", len(distributors_data))
 
     for dist_data in distributors_data:
         distributor = Distributor(
@@ -173,8 +217,16 @@ Include a mix of:
             "ingredient_count": len(supplied),
             "source": "llm_generated",
         })
+        logger.info(
+            "Created LLM distributor: distributor_id=%s name=%r category=%s supplied_count=%s",
+            distributor.id,
+            distributor.name,
+            category,
+            len(supplied),
+        )
 
     db.commit()
+    logger.info("Committed %s LLM-generated distributors", len(results))
     return results
 
 

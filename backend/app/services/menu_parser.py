@@ -3,9 +3,12 @@ Step 1: Menu → Recipes & Ingredients
 Parses a restaurant menu into structured recipes with ingredients and quantities.
 """
 
+import logging
 from sqlalchemy.orm import Session
 from app.core.llm import call_llm
 from app.models.tables import Menu, Recipe, Ingredient, RecipeIngredient
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are a professional chef and restaurant consultant. Given a restaurant menu,
 break down each dish into a detailed recipe with commercial-scale ingredients and quantities.
@@ -40,9 +43,19 @@ Guidelines:
 
 async def parse_menu(db: Session, menu_id: int) -> list[dict]:
     """Parse a menu's raw text into structured recipes and persist to DB."""
+    logger.info("Starting menu parsing for menu_id=%s", menu_id)
+
     menu = db.query(Menu).filter(Menu.id == menu_id).first()
     if not menu:
+        logger.warning("Menu parsing failed: menu_id=%s not found", menu_id)
         raise ValueError(f"Menu {menu_id} not found")
+
+    logger.info(
+        "Loaded menu for parsing: menu_id=%s name=%r raw_text_chars=%s",
+        menu.id,
+        menu.name,
+        len(menu.raw_text or ""),
+    )
 
     user_prompt = f"""Parse this restaurant menu into structured recipes:
 
@@ -51,10 +64,13 @@ Menu:
 {menu.raw_text}
 """
 
+    logger.info("Calling LLM to extract dishes for menu_id=%s", menu_id)
     result = await call_llm(SYSTEM_PROMPT, user_prompt)
     dishes = result.get("dishes", [])
+    logger.info("LLM returned %s dishes for menu_id=%s", len(dishes), menu_id)
 
     created_recipes = []
+    created_ingredient_count = 0
 
     for dish in dishes:
         # Create or find the recipe
@@ -83,6 +99,7 @@ Menu:
                 )
                 db.add(ingredient)
                 db.flush()
+                created_ingredient_count += 1
 
             # Create the recipe-ingredient link
             recipe_ingredient = RecipeIngredient(
@@ -101,6 +118,12 @@ Menu:
         })
 
     db.commit()
+    logger.info(
+        "Completed menu parsing for menu_id=%s: recipes_created=%s new_ingredients=%s",
+        menu_id,
+        len(created_recipes),
+        created_ingredient_count,
+    )
     return created_recipes
 
 

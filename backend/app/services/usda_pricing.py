@@ -3,6 +3,7 @@ Step 2: Ingredient Pricing Trends (USDA API)
 Fetches pricing data from USDA FoodData Central for extracted ingredients.
 """
 
+import logging
 import httpx
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -12,17 +13,24 @@ from app.models.tables import Ingredient, IngredientPrice
 USDA_BASE_URL = "https://api.nal.usda.gov/fdc/v1"
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 async def fetch_pricing_for_all_ingredients(db: Session) -> list[dict]:
     """Fetch USDA pricing data for all ingredients in the database."""
     ingredients = db.query(Ingredient).all()
     results = []
+    logger.info("Starting USDA pricing fetch for %s ingredients", len(ingredients))
 
     async with httpx.AsyncClient(timeout=30) as client:
         for ingredient in ingredients:
             search_term = ingredient.usda_search_term or ingredient.name
             try:
+                logger.info(
+                    "Searching USDA pricing data for ingredient_id=%s term=%r",
+                    ingredient.id,
+                    search_term,
+                )
                 price_data = await _search_usda(client, search_term)
                 if price_data:
                     # Store the USDA FDC ID on the ingredient
@@ -45,11 +53,22 @@ async def fetch_pricing_for_all_ingredients(db: Session) -> list[dict]:
                         "unit": price_data.get("unit"),
                         "status": "found",
                     })
+                    logger.info(
+                        "USDA match found for ingredient_id=%s fdc_id=%s estimated_price=%s",
+                        ingredient.id,
+                        price_data.get("fdc_id"),
+                        price_data.get("price"),
+                    )
                 else:
                     results.append({
                         "ingredient": ingredient.name,
                         "status": "not_found",
                     })
+                    logger.warning(
+                        "No USDA match found for ingredient_id=%s term=%r",
+                        ingredient.id,
+                        search_term,
+                    )
 
             except Exception as e:
                 results.append({
@@ -57,8 +76,21 @@ async def fetch_pricing_for_all_ingredients(db: Session) -> list[dict]:
                     "status": "error",
                     "error": str(e),
                 })
+                logger.exception(
+                    "USDA pricing lookup failed for ingredient_id=%s term=%r",
+                    ingredient.id,
+                    search_term,
+                )
 
     db.commit()
+    found_count = sum(1 for result in results if result["status"] == "found")
+    error_count = sum(1 for result in results if result["status"] == "error")
+    logger.info(
+        "Completed USDA pricing fetch: total=%s found=%s errors=%s",
+        len(results),
+        found_count,
+        error_count,
+    )
     return results
 
 
@@ -80,11 +112,18 @@ async def _search_usda(client: httpx.AsyncClient, query: str) -> dict | None:
 
     foods = data.get("foods", [])
     if not foods:
+        logger.warning("USDA search returned no foods for query=%r", query)
         return None
 
     # Take the best match
     best = foods[0]
     fdc_id = best.get("fdcId")
+    logger.info(
+        "Selected USDA food match for query=%r fdc_id=%s description=%r",
+        query,
+        fdc_id,
+        best.get("description", ""),
+    )
 
     # Try to get detailed nutrient/price data
     # Note: USDA FoodData Central doesn't directly provide market prices.
@@ -95,6 +134,12 @@ async def _search_usda(client: httpx.AsyncClient, query: str) -> dict | None:
     detail_params = {"api_key": settings.usda_api_key}
 
     detail_response = await client.get(detail_url, params=detail_params)
+    if detail_response.is_error:
+        logger.warning(
+            "USDA detail lookup returned status=%s for fdc_id=%s",
+            detail_response.status_code,
+            fdc_id,
+        )
 
     price_info = {
         "fdc_id": fdc_id,

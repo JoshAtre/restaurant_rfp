@@ -3,6 +3,7 @@ Step 4: Send RFP Emails to Distributors
 Composes and sends RFP emails requesting price quotes for required ingredients.
 """
 
+import logging
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -16,6 +17,7 @@ from app.models.tables import (
 )
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 QUOTE_DEADLINE_DAYS = 7
 
@@ -25,6 +27,11 @@ async def compose_and_send_rfp_emails(db: Session, send: bool = False) -> list[d
 
     distributors = db.query(Distributor).all()
     results = []
+    logger.info(
+        "Starting RFP email composition: distributor_count=%s send=%s",
+        len(distributors),
+        send,
+    )
 
     for distributor in distributors:
         # Get ingredients this distributor supplies
@@ -36,7 +43,19 @@ async def compose_and_send_rfp_emails(db: Session, send: bool = False) -> list[d
         )
 
         if not dist_ingredients:
+            logger.info(
+                "Skipping distributor with no linked ingredients: distributor_id=%s name=%r",
+                distributor.id,
+                distributor.name,
+            )
             continue
+
+        logger.info(
+            "Composing RFP email for distributor_id=%s name=%r ingredient_count=%s",
+            distributor.id,
+            distributor.name,
+            len(dist_ingredients),
+        )
 
         # Get aggregated quantities from recipes
         ingredient_details = []
@@ -69,6 +88,12 @@ async def compose_and_send_rfp_emails(db: Session, send: bool = False) -> list[d
         )
         db.add(rfp_email)
         db.flush()
+        logger.info(
+            "Created RFP email draft: rfp_email_id=%s distributor_id=%s subject=%r",
+            rfp_email.id,
+            distributor.id,
+            rfp_email.subject,
+        )
 
         # Optionally send the email
         if send and distributor.email:
@@ -79,6 +104,18 @@ async def compose_and_send_rfp_emails(db: Session, send: bool = False) -> list[d
             )
             rfp_email.status = "sent" if sent else "failed"
             rfp_email.sent_at = datetime.utcnow() if sent else None
+            logger.info(
+                "RFP email send attempted: rfp_email_id=%s distributor_id=%s status=%s",
+                rfp_email.id,
+                distributor.id,
+                rfp_email.status,
+            )
+        elif send and not distributor.email:
+            logger.warning(
+                "Cannot send RFP email without distributor email: rfp_email_id=%s distributor_id=%s",
+                rfp_email.id,
+                distributor.id,
+            )
 
         results.append({
             "distributor": distributor.name,
@@ -90,11 +127,17 @@ async def compose_and_send_rfp_emails(db: Session, send: bool = False) -> list[d
         })
 
     db.commit()
+    logger.info("Completed RFP email composition: emails_created=%s", len(results))
     return results
 
 
 async def _compose_email(distributor: Distributor, ingredients: list[dict]) -> dict:
     """Use LLM to compose a professional RFP email."""
+    logger.info(
+        "Calling LLM to compose RFP email for distributor_id=%s ingredient_count=%s",
+        distributor.id,
+        len(ingredients),
+    )
 
     system_prompt = """You are a restaurant procurement manager writing professional RFP 
 emails to food distributors. Write clear, concise, business-appropriate emails.
@@ -135,10 +178,11 @@ The email should:
 def _send_email(to: str, subject: str, body: str) -> bool:
     """Send an email via SMTP. Returns True on success."""
     if not settings.smtp_user or not settings.smtp_password:
-        print(f"[MOCK SEND] To: {to} | Subject: {subject}")
+        logger.info("Mock sending email because SMTP credentials are not configured: to=%s subject=%r", to, subject)
         return True  # Mock success for demo
 
     try:
+        logger.info("Sending email via SMTP: to=%s subject=%r host=%s", to, subject, settings.smtp_host)
         msg = MIMEMultipart()
         msg["From"] = settings.email_from
         msg["To"] = to
@@ -152,5 +196,5 @@ def _send_email(to: str, subject: str, body: str) -> bool:
 
         return True
     except Exception as e:
-        print(f"Email send failed: {e}")
+        logger.exception("Email send failed: to=%s subject=%r", to, subject)
         return False
