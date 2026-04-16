@@ -823,3 +823,99 @@
   font-style: italic;
   color: var(--rust);
 }
+
+/* ─── Quotes ──────────────────────────────────────────── */
+
+.quotes-wrap {
+  padding: 0;
+}
+
+.quotes-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 24px;
+}
+
+.recommendation {
+  border-left: 3px solid var(--forest-bright);
+  padding: 16px 20px;
+  margin-bottom: 28px;
+  background: rgba(47, 90, 43, 0.06);
+}
+
+.recommendation .section-label {
+  color: var(--forest-bright);
+  font-size: 10px;
+  border: none;
+  padding: 0;
+  margin-bottom: 4px;
+}
+
+.recommendation h3 {
+  font-family: var(--serif);
+  font-size: 20px;
+  margin: 0 0 4px;
+}
+
+.recommendation p {
+  font-size: 14px;
+  margin: 0 0 6px;
+  color: var(--ink-soft);
+}
+
+.recommendation .terms {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-fade);
+  letter-spacing: 0.04em;
+}
+
+.comparison-table-wrap {
+  overflow-x: auto;
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.comparison-table th {
+  font-family: var(--serif);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 2px solid var(--rule);
+  white-space: nowrap;
+}
+
+.comparison-table .th-rating {
+  color: var(--mustard);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.comparison-table td {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--paper-darker);
+}
+
+.comparison-table .ing-cell {
+  font-family: var(--serif);
+  font-size: 13px;
+  min-width: 160px;
+}
+
+.comparison-table .price-cell {
+  text-align: right;
+  min-width: 100px;
+  color: var(--ink-soft);
+}
+
+.comparison-table .price-cell.cheapest {
+  color: var(--forest-bright);
+  font-weight: 700;
+  background: rgba(47, 90, 43, 0.06);
+}

@@ -17,6 +17,7 @@ const STEPS = [
   { id: 2, title: "USDA Pricing", desc: "FoodData Central · Snapshots" },
   { id: 3, title: "Find Distributors", desc: "Google Places · Local supply" },
   { id: 4, title: "Send Emails", desc: "RFP Drafts · Outbound" },
+  { id: 5, title: "Quote Comparison", desc: "Simulated Quotes · Recommendation" },
 ];
 
 const TABS = [
@@ -24,6 +25,7 @@ const TABS = [
   { id: "pricing", label: "Pricing" },
   { id: "distributors", label: "Distributors" },
   { id: "emails", label: "RFP Emails" },
+  { id: "quotes", label: "Quotes" },
 ];
 
 const TODAY = new Date().toLocaleDateString("en-US", {
@@ -66,6 +68,7 @@ export default function App() {
     2: "idle",
     3: "idle",
     4: "idle",
+    5: "idle",
   });
   const [running, setRunning] = useState(false);
   const [error, setError] = useState(null);
@@ -75,6 +78,8 @@ export default function App() {
   const [ingredients, setIngredients] = useState([]);
   const [distributors, setDistributors] = useState([]);
   const [emails, setEmails] = useState([]);
+  const [quoteComparison, setQuoteComparison] = useState(null);
+  const [simulating, setSimulating] = useState(false);
 
   const chartData = useMemo(
     () =>
@@ -93,6 +98,7 @@ export default function App() {
     pricing: ingredients.filter((i) => i.latest_price != null).length,
     distributors: distributors.length,
     emails: emails.length,
+    quotes: quoteComparison?.rows?.length ?? 0,
   };
 
   const updateField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -104,7 +110,7 @@ export default function App() {
     if (running) return;
     setError(null);
     setRunning(true);
-    setStepStatus({ 1: "running", 2: "idle", 3: "idle", 4: "idle" });
+    setStepStatus({ 1: "running", 2: "idle", 3: "idle", 4: "idle", 5: "idle" });
     setRecipes([]);
     setIngredients([]);
     setDistributors([]);
@@ -347,6 +353,28 @@ export default function App() {
                 <DistributorsPanel distributors={distributors} />
               )}
               {activeTab === "emails" && <EmailsPanel emails={emails} />}
+              {activeTab === "quotes" && (
+                <QuotesPanel
+                  comparison={quoteComparison}
+                  simulating={simulating}
+                  onSimulate={async () => {
+                    setSimulating(true);
+                    setStep(5, "running");
+                    try {
+                      const data = await jfetch(`${API}/quotes/simulate`, {
+                        method: "POST",
+                      });
+                      setQuoteComparison(data.comparison);
+                      setStep(5, "done");
+                    } catch (err) {
+                      setError(err.message);
+                      setStep(5, "idle");
+                    } finally {
+                      setSimulating(false);
+                    }
+                  }}
+                />
+              )}
             </div>
           </section>
 
@@ -600,6 +628,75 @@ function EmailsPanel({ emails }) {
           <pre>{e.body}</pre>
         </article>
       ))}
+    </div>
+  );
+}
+
+function QuotesPanel({ comparison, simulating, onSimulate }) {
+  return (
+    <div className="quotes-wrap">
+      <div className="quotes-header">
+        <button className="btn" disabled={simulating} onClick={onSimulate}>
+          {simulating ? "Simulating…" : "Simulate Responses"}
+          <span className="arrow">→</span>
+        </button>
+      </div>
+
+      {!comparison || !comparison.rows?.length ? (
+        <Empty text="No quotes yet. Click Simulate Responses to generate distributor quotes." />
+      ) : (
+        <>
+          {comparison.recommendation && (
+            <div className="recommendation">
+              <div className="section-label">Recommendation</div>
+              <h3>{comparison.recommendation.distributor_name}</h3>
+              <p>{comparison.recommendation.rationale}</p>
+              {comparison.recommendation.delivery_terms && (
+                <div className="terms">{comparison.recommendation.delivery_terms}</div>
+              )}
+            </div>
+          )}
+
+          <div className="comparison-table-wrap">
+            <table className="comparison-table">
+              <thead>
+                <tr>
+                  <th>Ingredient</th>
+                  {comparison.distributors.map((d) => (
+                    <th key={d.id}>
+                      {d.name}
+                      {d.rating != null && (
+                        <span className="th-rating"> ★ {Number(d.rating).toFixed(1)}</span>
+                      )}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {comparison.rows.map((row) => (
+                  <tr key={row.ingredient_id}>
+                    <td className="ing-cell">{row.ingredient_name}</td>
+                    {comparison.distributors.map((d) => {
+                      const cell = row.prices[d.id];
+                      const isCheapest = d.id === row.cheapest_distributor_id;
+                      return (
+                        <td
+                          key={d.id}
+                          className={`price-cell${isCheapest ? " cheapest" : ""}`}
+                        >
+                          {cell
+                            ? `$${Number(cell.price).toFixed(2)}/${cell.unit}`
+                            : "—"}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }

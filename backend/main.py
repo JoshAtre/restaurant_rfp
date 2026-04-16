@@ -18,6 +18,7 @@ from app.schemas.api import (
     PriceOut, DistributorOut, RFPEmailOut, PipelineStatusOut,
 )
 from app.pipeline.orchestrator import run_pipeline
+from app.services.quote_monitor import simulate_quote_responses, build_comparison
 
 
 @asynccontextmanager
@@ -183,6 +184,20 @@ def send_email(email_id: int, db: Session = Depends(get_db)):
     email.sent_at = datetime.utcnow()
     db.commit()
     return {"status": "sent", "id": email.id}
+
+
+# ─── Quote Endpoints ───────────────────────────────────────
+
+@app.post("/api/quotes/simulate")
+async def simulate_quotes(db: Session = Depends(get_db)):
+    """Generate simulated distributor quote replies via LLM and persist them."""
+    results = await simulate_quote_responses(db)
+    return {"simulated": results, "comparison": build_comparison(db)}
+
+
+@app.get("/api/quotes/comparison")
+def get_quote_comparison(db: Session = Depends(get_db)):
+    return build_comparison(db)
 
 
 # ─── Pipeline Endpoints ────────────────────────────────────
