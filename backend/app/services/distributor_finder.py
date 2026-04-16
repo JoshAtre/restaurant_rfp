@@ -245,5 +245,5 @@ def _link_distributor_ingredients(
 
 def _mock_email(business_name: str) -> str:
     """Generate a mock email address for demo purposes."""
-    slug = business_name.lower().replace(" ", "").replace("'", "")[:20]
+    slug = "".join(c for c in business_name.lower() if c.isalnum())[:20]
     return f"quotes@{slug}.example.com"

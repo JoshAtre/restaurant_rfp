@@ -135,7 +135,7 @@ export default function App() {
       let pipelineError = null;
       const pipelinePromise = jfetch(`${API}/pipeline/run`, {
         method: "POST",
-        body: JSON.stringify({ menu_id: menu.id, send_emails: false }),
+        body: JSON.stringify({ menu_id: menu.id, send_emails: true }),
       });
       pipelinePromise
         .catch((err) => {
