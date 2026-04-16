@@ -46,7 +46,7 @@ Chosen because Sweetgreen's ingredient-forward menu maps cleanly to USDA commodi
 | Backend   | Python 3.11 + FastAPI    | Async, fast, great for API orchestration      |
 | Database  | SQLite (via SQLAlchemy)  | Zero config, portable, real SQL               |
 | LLM       | OpenAI GPT-4o          | JSON mode, strong at recipe parsing   |
-| Frontend  | React + Vite + Tailwind  | Fast dev, component-based pipeline viz        |
+| Frontend  | React + Vite + Custom CSS | Newspaper-inspired design, no framework bloat |
 | Email     | smtplib / SendGrid       | Built-in Python SMTP or free tier API         |
 | Pricing   | USDA FoodData Central    | Free, official commodity pricing data         |
 
@@ -177,65 +177,42 @@ CREATE TABLE pipeline_runs (
 ## Project Structure
 
 ```
-pathway-rfp/
+restaurant_rfp/
 ├── README.md
+├── CLAUDE.md
 ├── backend/
 │   ├── requirements.txt
 │   ├── .env.example
-│   ├── main.py                     # FastAPI app entry point
+│   ├── main.py                       # FastAPI app + all route handlers
 │   ├── app/
-│   │   ├── __init__.py
 │   │   ├── core/
-│   │   │   ├── config.py           # Settings, env vars
-│   │   │   ├── database.py         # SQLAlchemy engine + session
-│   │   │   └── llm.py              # Claude API client wrapper
+│   │   │   ├── config.py             # Pydantic Settings, env vars
+│   │   │   ├── database.py           # SQLAlchemy engine + session
+│   │   │   ├── llm.py               # OpenAI client wrapper (call_llm)
+│   │   │   └── units.py             # Unit normalization/conversion
 │   │   ├── models/
-│   │   │   ├── __init__.py
-│   │   │   └── tables.py           # SQLAlchemy ORM models
+│   │   │   └── tables.py            # SQLAlchemy ORM models (10 tables)
 │   │   ├── schemas/
-│   │   │   ├── __init__.py
-│   │   │   └── api.py              # Pydantic request/response models
+│   │   │   └── api.py               # Pydantic request/response models
 │   │   ├── services/
-│   │   │   ├── __init__.py
-│   │   │   ├── menu_parser.py      # Step 1: Menu → Recipes
-│   │   │   ├── usda_pricing.py     # Step 2: USDA API client
-│   │   │   ├── distributor_finder.py # Step 3: Find distributors
-│   │   │   ├── email_sender.py     # Step 4: Compose & send RFP
-│   │   │   └── quote_monitor.py    # Step 5: Inbox agent (nice-to-have)
-│   │   ├── api/
-│   │   │   ├── __init__.py
-│   │   │   ├── pipeline.py         # POST /pipeline/run, GET /pipeline/status
-│   │   │   ├── menus.py            # CRUD for menus
-│   │   │   ├── recipes.py          # GET recipes + ingredients
-│   │   │   ├── pricing.py          # GET pricing data
-│   │   │   ├── distributors.py     # GET distributors
-│   │   │   └── emails.py           # GET/POST rfp emails
+│   │   │   ├── menu_parser.py       # Step 1: Menu → Recipes + Ingredients
+│   │   │   ├── usda_pricing.py      # Step 2: USDA FoodData Central pricing
+│   │   │   ├── distributor_finder.py # Step 3: Google Places / LLM fallback
+│   │   │   ├── email_sender.py      # Step 4: Compose & send RFP emails
+│   │   │   └── quote_monitor.py     # Step 5: Simulate quotes via LLM
 │   │   └── pipeline/
-│   │       └── orchestrator.py     # Runs steps 1-5 sequentially
+│   │       └── orchestrator.py      # Runs steps 1-5 sequentially
 │   └── data/
-│       └── rfp.db                  # SQLite database file
+│       └── rfp.db                   # SQLite database file
 ├── frontend/
 │   ├── package.json
 │   ├── vite.config.js
-│   ├── index.html
+│   ├── index.html                   # Loads Fraunces + JetBrains Mono fonts
 │   └── src/
-│       ├── App.jsx
-│       ├── main.jsx
-│       ├── components/
-│       │   ├── PipelineStepper.jsx  # Visual step tracker
-│       │   ├── MenuInput.jsx       # Upload/paste menu
-│       │   ├── RecipeTable.jsx     # Parsed recipes + ingredients
-│       │   ├── PricingChart.jsx    # USDA price trends
-│       │   ├── DistributorMap.jsx  # Distributor list/map
-│       │   ├── EmailPreview.jsx    # RFP email drafts
-│       │   └── QuoteComparison.jsx # Quote comparison table
-│       ├── hooks/
-│       │   └── usePipeline.js      # API polling hook
-│       └── lib/
-│           └── api.js              # Axios API client
-└── scripts/
-    ├── seed_menu.py                # Load Sweetgreen menu data
-    └── init_db.py                  # Create tables
+│       ├── main.jsx                 # React root mount
+│       ├── App.jsx                  # All UI: stepper, form, 5 data panels
+│       ├── App.css                  # Component styles, newspaper layout
+│       └── index.css                # CSS variables, color palette, fonts
 ```
 
 ## Setup & Run
@@ -274,12 +251,15 @@ npm run dev   # Runs on :5173
 
 | Method | Endpoint                    | Description                         |
 |--------|-----------------------------|-------------------------------------|
-| POST   | `/api/pipeline/run`         | Start a new pipeline run            |
-| GET    | `/api/pipeline/{id}/status` | Get current pipeline status         |
+| GET    | `/api/health`               | Health check                        |
+| POST   | `/api/menus`                | Create a menu                       |
 | GET    | `/api/menus/{id}/recipes`   | Get parsed recipes for a menu       |
 | GET    | `/api/ingredients`          | List all ingredients with prices    |
 | GET    | `/api/pricing/trends`       | Get USDA pricing trend data         |
 | GET    | `/api/distributors`         | List found distributors             |
 | GET    | `/api/emails`               | List RFP email drafts               |
 | POST   | `/api/emails/{id}/send`     | Send an RFP email                   |
-| GET    | `/api/quotes`               | List received quotes (Step 5)       |
+| POST   | `/api/quotes/simulate`      | Trigger quote simulation (Step 5)   |
+| GET    | `/api/quotes/comparison`    | Get quote comparison table          |
+| POST   | `/api/pipeline/run`         | Start a new pipeline run            |
+| GET    | `/api/pipeline/{id}/status` | Get current pipeline status         |
