@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     email_from: str = ""
+    sender_name: str = "Josh Atre"
+    sender_email: str = "josh@sweetgreen.com"
 
     # Restaurant location
     restaurant_city: str = "New York"

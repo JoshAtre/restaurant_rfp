@@ -204,6 +204,10 @@ Quote deadline: {deadline}
 Ingredients needed (weekly estimates):
 {ingredient_table}
 
+Sender (sign the email as this person):
+Name: {settings.sender_name}
+Email: {settings.sender_email}
+
 The email should:
 1. Introduce the restaurant by its actual name ({restaurant_name}) and its actual
    city/state ({settings.restaurant_city}, {settings.restaurant_state}), and
@@ -213,6 +217,8 @@ The email should:
 3. Request per-unit pricing, minimum order quantities, and delivery terms
 4. Set a clear deadline for quote submission
 5. Be professional but not overly formal
+6. Sign off with {settings.sender_name} ({settings.sender_email}). Do NOT use
+   placeholders like "[Your Name]" or "[Your Email]".
 """
 
     return await call_llm(system_prompt, user_prompt)
