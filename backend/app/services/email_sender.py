@@ -13,7 +13,7 @@ from app.core.config import get_settings
 from app.core.llm import call_llm
 from app.core.units import sum_canonical, prettify
 from app.models.tables import (
-    Distributor, DistributorIngredient, Ingredient,
+    Distributor, DistributorIngredient, Ingredient, Menu,
     RecipeIngredient, RFPEmail,
 )
 
@@ -24,8 +24,17 @@ QUOTE_DEADLINE_DAYS = 7
 COVERS_PER_DAY = 150  # must match frontend/src/App.jsx COVERS_PER_DAY
 
 
-async def compose_and_send_rfp_emails(db: Session, send: bool = False) -> list[dict]:
+async def compose_and_send_rfp_emails(
+    db: Session, send: bool = False, menu_id: int | None = None
+) -> list[dict]:
     """Compose RFP emails for each distributor with their relevant ingredients."""
+
+    menu = (
+        db.query(Menu).filter(Menu.id == menu_id).first()
+        if menu_id is not None
+        else db.query(Menu).order_by(Menu.created_at.desc()).first()
+    )
+    restaurant_name = menu.name if menu else "Our Restaurant"
 
     distributors = db.query(Distributor).all()
     results = []
@@ -100,7 +109,9 @@ async def compose_and_send_rfp_emails(db: Session, send: bool = False) -> list[d
             })
 
         # Compose the email using LLM
-        email_content = await _compose_email(distributor, ingredient_details)
+        email_content = await _compose_email(
+            distributor, ingredient_details, restaurant_name
+        )
 
         deadline = datetime.utcnow().date() + timedelta(days=QUOTE_DEADLINE_DAYS)
 
@@ -156,7 +167,9 @@ async def compose_and_send_rfp_emails(db: Session, send: bool = False) -> list[d
     return results
 
 
-async def _compose_email(distributor: Distributor, ingredients: list[dict]) -> dict:
+async def _compose_email(
+    distributor: Distributor, ingredients: list[dict], restaurant_name: str
+) -> dict:
     """Use LLM to compose a professional RFP email."""
     logger.info(
         "Calling LLM to compose RFP email for distributor_id=%s ingredient_count=%s",
@@ -182,15 +195,20 @@ Respond ONLY with valid JSON:
 
     user_prompt = f"""Compose an RFP email to {distributor.name} requesting price quotes.
 
+Restaurant: {restaurant_name}
+Restaurant location: {settings.restaurant_city}, {settings.restaurant_state}
 Distributor: {distributor.name}
-Location: {distributor.city}, {distributor.state}
+Distributor location: {distributor.city}, {distributor.state}
 Quote deadline: {deadline}
 
 Ingredients needed (weekly estimates):
 {ingredient_table}
 
 The email should:
-1. Introduce the restaurant and explain we're seeking competitive pricing
+1. Introduce the restaurant by its actual name ({restaurant_name}) and its actual
+   city/state ({settings.restaurant_city}, {settings.restaurant_state}), and
+   explain we're seeking competitive pricing. Do NOT use placeholders like
+   "[Restaurant Name]" or "[City, State]" — always use the real values above.
 2. List the ingredients with estimated weekly quantities
 3. Request per-unit pricing, minimum order quantities, and delivery terms
 4. Set a clear deadline for quote submission

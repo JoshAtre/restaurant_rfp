@@ -85,7 +85,9 @@ async def run_pipeline(db: Session, menu_id: int, send_emails: bool = False) -> 
         db.commit()
         logger.info("Pipeline run_id=%s step=4 status=running action=compose_emails", run.id)
 
-        emails = await compose_and_send_rfp_emails(db, send=send_emails)
+        emails = await compose_and_send_rfp_emails(
+            db, send=send_emails, menu_id=run.menu_id
+        )
 
         run.step_4_status = "completed"
         db.commit()
