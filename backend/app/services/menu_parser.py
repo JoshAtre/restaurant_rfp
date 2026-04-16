@@ -158,9 +158,11 @@ Menu:
 
 def _guess_category(name: str) -> str:
     """Simple heuristic to categorize an ingredient."""
-    produce = ["lettuce", "tomato", "onion", "pepper", "spinach", "kale",
-               "arugula", "carrot", "cucumber", "avocado", "corn", "broccoli",
-               "cabbage", "cilantro", "basil", "mint", "lemon", "lime"]
+    produce = ["lettuce", "romaine", "tomato", "onion", "pepper", "spinach",
+               "kale", "arugula", "carrot", "cucumber", "avocado", "corn",
+               "broccoli", "cabbage", "cilantro", "basil", "mint", "lemon",
+               "lime", "apple", "sweet potato", "potato", "celery", "beet",
+               "radish", "squash", "zucchini", "mushroom", "garlic", "ginger"]
     protein = ["chicken", "beef", "steak", "salmon", "shrimp", "tofu",
                "turkey", "pork", "egg", "tuna", "lamb"]
     dairy = ["cheese", "cream", "yogurt", "butter", "milk", "mozzarella",

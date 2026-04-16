@@ -240,12 +240,10 @@ def build_comparison(db: Session) -> dict:
             "distributor_name": best["name"],
             "win_count": wins,
             "line_count": len(ingredients),
-            "average_price": avg,
             "delivery_terms": best.get("delivery_terms"),
             "rationale": (
                 f"{best['name']} offered the lowest price on {wins} of "
-                f"{len(ingredients)} ingredients"
-                + (f" with an average quoted price of ${avg:.2f}." if avg is not None else ".")
+                f"{len(ingredients)} ingredients."
             ),
         }
 

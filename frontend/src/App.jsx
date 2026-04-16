@@ -16,7 +16,7 @@ const STEPS = [
   { id: 1, title: "Menu Parsing", desc: "LLM · Recipes & Ingredients" },
   { id: 2, title: "USDA Pricing", desc: "FoodData Central · Snapshots" },
   { id: 3, title: "Find Distributors", desc: "Google Places · Local supply" },
-  { id: 4, title: "Send Emails", desc: "RFP Drafts · Outbound" },
+  { id: 4, title: "Send Emails", desc: "SMTP · Outbound RFPs" },
   { id: 5, title: "Quote Comparison", desc: "Simulated Quotes · Recommendation" },
 ];
 
@@ -311,7 +311,7 @@ export default function App() {
 
               <div className="form-footer">
                 <div className="hint">
-                  Four steps · Ingredients parsed, priced, sourced, and dispatched as RFP drafts.
+                  Five steps · Ingredients parsed, priced, sourced, dispatched as RFPs, and quotes compared.
                 </div>
                 <button className="btn" disabled={running}>
                   {running ? "Processing…" : "Run the Pipeline"}
@@ -651,9 +651,6 @@ function QuotesPanel({ comparison, simulating, onSimulate }) {
               <div className="section-label">Recommendation</div>
               <h3>{comparison.recommendation.distributor_name}</h3>
               <p>{comparison.recommendation.rationale}</p>
-              {comparison.recommendation.delivery_terms && (
-                <div className="terms">{comparison.recommendation.delivery_terms}</div>
-              )}
             </div>
           )}
 
