@@ -11,6 +11,7 @@ from app.services.menu_parser import parse_menu
 from app.services.usda_pricing import fetch_pricing_for_all_ingredients
 from app.services.distributor_finder import find_distributors
 from app.services.email_sender import compose_and_send_rfp_emails
+from app.services.quote_monitor import simulate_quote_responses
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,22 @@ async def run_pipeline(db: Session, menu_id: int, send_emails: bool = False) -> 
             "Pipeline run_id=%s step=4 status=completed emails_created=%s",
             run.id,
             len(emails),
+        )
+
+        # Step 5: Simulate quote responses and build comparison
+        run.current_step = 5
+        run.step_5_status = "running"
+        db.commit()
+        logger.info("Pipeline run_id=%s step=5 status=running action=simulate_quotes", run.id)
+
+        quotes = await simulate_quote_responses(db)
+
+        run.step_5_status = "completed"
+        db.commit()
+        logger.info(
+            "Pipeline run_id=%s step=5 status=completed quotes_simulated=%s",
+            run.id,
+            len(quotes),
         )
 
         # Mark pipeline as complete

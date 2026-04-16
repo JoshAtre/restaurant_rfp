@@ -79,7 +79,6 @@ export default function App() {
   const [distributors, setDistributors] = useState([]);
   const [emails, setEmails] = useState([]);
   const [quoteComparison, setQuoteComparison] = useState(null);
-  const [simulating, setSimulating] = useState(false);
 
   const chartData = useMemo(
     () =>
@@ -196,21 +195,34 @@ export default function App() {
         return false;
       }, isDone);
       setStep(4, "done");
+      setStep(5, "running");
+
+      await waitFor(async () => {
+        const cmp = await jfetch(`${API}/quotes/comparison`).catch(() => null);
+        if (cmp && cmp.rows && cmp.rows.length > 0) {
+          setQuoteComparison(cmp);
+          return true;
+        }
+        return false;
+      }, isDone);
+      setStep(5, "done");
 
       await pipelinePromise;
       if (pipelineError) throw pipelineError;
 
       // Final refresh to catch anything added near the end.
-      const [r2, i2, d2, e2] = await Promise.all([
+      const [r2, i2, d2, e2, q2] = await Promise.all([
         jfetch(`${API}/menus/${menu.id}/recipes`).catch(() => null),
         jfetch(`${API}/ingredients`).catch(() => null),
         jfetch(`${API}/distributors`).catch(() => null),
         jfetch(`${API}/emails`).catch(() => null),
+        jfetch(`${API}/quotes/comparison`).catch(() => null),
       ]);
       if (r2) setRecipes(r2);
       if (i2) setIngredients(i2);
       if (d2) setDistributors(d2);
       if (e2) setEmails(e2);
+      if (q2 && q2.rows?.length) setQuoteComparison(q2);
     } catch (err) {
       setError(err.message || "Pipeline failed.");
       setStepStatus((s) => {
@@ -354,26 +366,7 @@ export default function App() {
               )}
               {activeTab === "emails" && <EmailsPanel emails={emails} />}
               {activeTab === "quotes" && (
-                <QuotesPanel
-                  comparison={quoteComparison}
-                  simulating={simulating}
-                  onSimulate={async () => {
-                    setSimulating(true);
-                    setStep(5, "running");
-                    try {
-                      const data = await jfetch(`${API}/quotes/simulate`, {
-                        method: "POST",
-                      });
-                      setQuoteComparison(data.comparison);
-                      setStep(5, "done");
-                    } catch (err) {
-                      setError(err.message);
-                      setStep(5, "idle");
-                    } finally {
-                      setSimulating(false);
-                    }
-                  }}
-                />
+                <QuotesPanel comparison={quoteComparison} />
               )}
             </div>
           </section>
@@ -632,68 +625,58 @@ function EmailsPanel({ emails }) {
   );
 }
 
-function QuotesPanel({ comparison, simulating, onSimulate }) {
+function QuotesPanel({ comparison }) {
+  if (!comparison || !comparison.rows?.length) {
+    return <Empty text="Quote comparison will appear once Step 5 completes." />;
+  }
   return (
     <div className="quotes-wrap">
-      <div className="quotes-header">
-        <button className="btn" disabled={simulating} onClick={onSimulate}>
-          {simulating ? "Simulating…" : "Simulate Responses"}
-          <span className="arrow">→</span>
-        </button>
-      </div>
-
-      {!comparison || !comparison.rows?.length ? (
-        <Empty text="No quotes yet. Click Simulate Responses to generate distributor quotes." />
-      ) : (
-        <>
-          {comparison.recommendation && (
-            <div className="recommendation">
-              <div className="section-label">Recommendation</div>
-              <h3>{comparison.recommendation.distributor_name}</h3>
-              <p>{comparison.recommendation.rationale}</p>
-            </div>
-          )}
-
-          <div className="comparison-table-wrap">
-            <table className="comparison-table">
-              <thead>
-                <tr>
-                  <th>Ingredient</th>
-                  {comparison.distributors.map((d) => (
-                    <th key={d.id}>
-                      {d.name}
-                      {d.rating != null && (
-                        <span className="th-rating"> ★ {Number(d.rating).toFixed(1)}</span>
-                      )}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {comparison.rows.map((row) => (
-                  <tr key={row.ingredient_id}>
-                    <td className="ing-cell">{row.ingredient_name}</td>
-                    {comparison.distributors.map((d) => {
-                      const cell = row.prices[d.id];
-                      const isCheapest = d.id === row.cheapest_distributor_id;
-                      return (
-                        <td
-                          key={d.id}
-                          className={`price-cell${isCheapest ? " cheapest" : ""}`}
-                        >
-                          {cell
-                            ? `$${Number(cell.price).toFixed(2)}/${cell.unit}`
-                            : "—"}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
+      {comparison.recommendation && (
+        <div className="recommendation">
+          <div className="section-label">Recommendation</div>
+          <h3>{comparison.recommendation.distributor_name}</h3>
+          <p>{comparison.recommendation.rationale}</p>
+        </div>
       )}
+
+      <div className="comparison-table-wrap">
+        <table className="comparison-table">
+          <thead>
+            <tr>
+              <th>Ingredient</th>
+              {comparison.distributors.map((d) => (
+                <th key={d.id}>
+                  {d.name}
+                  {d.rating != null && (
+                    <span className="th-rating"> ★ {Number(d.rating).toFixed(1)}</span>
+                  )}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {comparison.rows.map((row) => (
+              <tr key={row.ingredient_id}>
+                <td className="ing-cell">{row.ingredient_name}</td>
+                {comparison.distributors.map((d) => {
+                  const cell = row.prices[d.id];
+                  const isCheapest = d.id === row.cheapest_distributor_id;
+                  return (
+                    <td
+                      key={d.id}
+                      className={`price-cell${isCheapest ? " cheapest" : ""}`}
+                    >
+                      {cell
+                        ? `$${Number(cell.price).toFixed(2)}/${cell.unit}`
+                        : "—"}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
